@@ -1,0 +1,30 @@
+# ArUco detector and waypoint bridge configuration.
+# Marker image dictionary: DICT_4X4_50
+#
+# Marker positions in world (SDF):
+#   0:(10,0)   1:(10,10)   2:(0,16)   3:(-10,10)  4:(-10,-10)
+#   5:(10,-10) 6:(0,-16)   7:(16,0)   8:(-16,0)   9:(6,6)
+#
+# Approach positions (hardcoded in aruco_waypoint_bridge.py) are ~5 m from each
+# marker, toward the origin, within the 8 m max_detection_range.
+
+aruco_detector:
+  ros__parameters:
+    aruco_dictionary_id: 0       # DICT_4X4_50
+    marker_size: 1.27            # physical marker size in metres (board=1.4m, pattern=91%)
+    image_topic: /camera/image
+    depth_topic: ""
+    camera_info_topic: /camera/camera_info
+    camera_frame: camera_optical_frame
+    max_detection_range: 8.0
+
+aruco_waypoint_bridge:
+  ros__parameters:
+    use_sim_time: true
+    goal_frame: map
+    arrival_distance: 1.2        # stop ArUco fine-approach when marker is this close (m)
+                                 # 1.27m board at 1.2m fills ~54° of the 70° lens — safe for detection
+    approach_speed: 0.12         # max forward speed during fine visual-servo approach (m/s)
+
+    # Ordered mission sequence (marker IDs to visit in order)
+    mission_sequence: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
