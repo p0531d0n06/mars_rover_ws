@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ==================== WHEEL MACRO ====================
+       One driven wheel with a continuous joint.
+       Parameters:
+         prefix     - unique name prefix (e.g. left_front)
+         parent     - parent link name
+         x, y, z   - joint origin relative to parent
+         flip       - 1.0 (left side) or -1.0 (right side) for mesh mirroring
+  -->
+  <xacro:property name="wheel_radius"    value="0.10"/>   <!-- 20 cm diameter -->
+  <xacro:property name="wheel_width"     value="0.08"/>
+  <xacro:property name="wheel_mass"      value="1.5"/>
+
+  <xacro:macro name="wheel" params="prefix parent x y z flip">
+
+    <link name="${prefix}_wheel_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="${wheel_mass}"/>
+        <!-- Solid cylinder: Ixx=Iyy = m(3r²+h²)/12, Izz = mr²/2 -->
+        <inertia
+          ixx="${wheel_mass*(3*wheel_radius*wheel_radius + wheel_width*wheel_width)/12}"
+          ixy="0" ixz="0"
+          iyy="${wheel_mass*(3*wheel_radius*wheel_radius + wheel_width*wheel_width)/12}"
+          iyz="0"
+          izz="${wheel_mass*wheel_radius*wheel_radius/2}"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="${parent}"/>
+      <child  link="${prefix}_wheel_link"/>
+      <origin xyz="${x} ${y} ${z}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="0.1" friction="0.05"/>
+    </joint>
+
+    <!-- Gazebo friction / wheel properties — high-traction hill-climbing setup -->
+    <gazebo reference="${prefix}_wheel_link">
+      <material>Gazebo/Black</material>
+      <!-- High mu for steep slope grip: max climbable angle = atan(mu/1) ≈ 76° -->
+      <mu1>4.0</mu1>
+      <mu2>4.0</mu2>
+      <!-- Stiff contact so wheels don't sink through mesh terrain faces -->
+      <kp>2000000.0</kp>
+      <kd>100.0</kd>
+      <!-- Deeper min-depth stabilises contact on triangulated mesh terrain -->
+      <minDepth>0.005</minDepth>
+      <maxVel>100.0</maxVel>
+      <!-- No contact slip — every newton of friction is used for propulsion -->
+      <slip1>0.0</slip1>
+      <slip2>0.0</slip2>
+    </gazebo>
+
+  </xacro:macro>
+
+</robot>

@@ -1,0 +1,270 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ==================== 6-WHEEL V-ROCKER SUSPENSION ===================
+       Topology (top-down):
+
+           [LF]           [RF]          ← front wheels on single front rocker
+              \           /
+               [FT PIVOT] ← x=+0.32, y=0, revolute X (roll)
+
+         [LM]           [RM]            ← mid wheels on side rear rockers
+          |               |
+       [L PIVOT]      [R PIVOT]         ← x=-0.22, y=±0.30, revolute Y (pitch)
+          |               |
+         [LR]           [RR]            ← rear wheels on side rear rockers
+
+       Wheel X positions (relative to base_link):
+         front  x = +0.32   mid  x =  0.00   rear  x = -0.44
+       All wheels at y = ±0.30 m, z = -0.22 m (relative to base_link).
+
+       base_footprint_joint z = wheel_radius(0.10)
+                              + rear_pivot_drop(0.12)
+                              + rear_arm_z_drop(0.10)  = 0.32 m
+
+       Clearances (no clipping at any rocker angle):
+         Wheel inner face → chassis side: 0.26 − 0.16 = 0.10 m
+         Arm inner face   → chassis side: 0.28 − 0.16 = 0.12 m
+         Arm top          → chassis bottom: 3 cm below (pivot drop 0.12 > chassis_h/2 0.07)
+         Wheels are at y=±0.30, chassis side at ±0.16 → 14 cm Y-separation at all joint angles
+  ====================================================================== -->
+
+  <xacro:include filename="$(find mars_rover_description)/urdf/wheel.xacro"/>
+
+  <!-- ── Rear side rocker geometry ──────────────────────────────────── -->
+  <!-- Each rear rocker is V-shaped (viewed from side); pivot is the apex -->
+  <xacro:property name="rear_pivot_x"     value="-0.22"/>  <!-- chassis X of pivot (−arm_reach → mid wheel at x=0) -->
+  <xacro:property name="rear_pivot_drop"  value="0.12"/>   <!-- Z below base_link (clears chassis bottom)           -->
+  <xacro:property name="rear_arm_x_reach" value="0.22"/>   <!-- horizontal arm reach                                -->
+  <xacro:property name="rear_arm_z_drop"  value="0.10"/>   <!-- vertical drop pivot→wheel                          -->
+  <!-- derived -->
+  <xacro:property name="rear_arm_length"
+    value="${sqrt(rear_arm_x_reach**2 + rear_arm_z_drop**2)}"/>
+  <xacro:property name="rear_arm_pitch"
+    value="${atan2(rear_arm_z_drop, rear_arm_x_reach)}"/>
+
+  <!-- ── Front rocker geometry ──────────────────────────────────────── -->
+  <!-- Single transverse rocker; pivot on chassis front centre; V-shaped
+       (viewed from front) — left and right arms angle outward and down -->
+  <xacro:property name="front_pivot_x"     value="0.32"/>   <!-- extruded past chassis front (front face at +0.28) -->
+  <xacro:property name="front_pivot_drop"  value="0.12"/>   <!-- Z below base_link (matches rear_pivot_drop)       -->
+  <xacro:property name="front_arm_y_reach" value="0.30"/>   <!-- matches suspension_y                              -->
+  <xacro:property name="front_arm_z_drop"  value="0.10"/>   <!-- vertical drop pivot→wheel                        -->
+  <!-- derived -->
+  <xacro:property name="front_arm_length"
+    value="${sqrt(front_arm_y_reach**2 + front_arm_z_drop**2)}"/>
+  <xacro:property name="front_arm_pitch"
+    value="${atan2(front_arm_z_drop, front_arm_y_reach)}"/>
+
+  <!-- ── Shared arm cross-section & hub ─────────────────────────────── -->
+  <xacro:property name="arm_w"    value="0.04"/>  <!-- arm box width  -->
+  <xacro:property name="arm_h"    value="0.04"/>  <!-- arm box height -->
+  <xacro:property name="hub_r"    value="0.030"/> <!-- pivot hub cylinder radius -->
+  <xacro:property name="hub_len"  value="0.05"/>  <!-- pivot hub cylinder length -->
+  <xacro:property name="rear_rocker_mass"  value="0.6"/>
+  <xacro:property name="front_rocker_mass" value="0.5"/>
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       REAR SIDE ROCKER MACRO
+       Params:
+         side     – "left" | "right"
+         y_offset – ± lateral pivot position from chassis centreline
+         flip     – 1.0 (left) | -1.0 (right)
+  ═══════════════════════════════════════════════════════════════════ -->
+  <xacro:macro name="rear_rocker_side" params="side y_offset flip">
+
+    <link name="${side}_rear_rocker_link">
+      <!-- pivot hub: cylinder aligned with Y axis (joint axis) -->
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${hub_r}" length="${hub_len}"/></geometry>
+        <material name="rover_suspension"/>
+      </visual>
+
+      <!-- forward arm: pivot → mid wheel (forward and downward) -->
+      <!-- box centre at midpoint; pitched so +X axis points toward mid wheel -->
+      <visual>
+        <origin xyz="${rear_arm_x_reach/2} 0 ${-rear_arm_z_drop/2}"
+                rpy="0 ${rear_arm_pitch} 0"/>
+        <geometry><box size="${rear_arm_length} ${arm_w} ${arm_h}"/></geometry>
+        <material name="rover_suspension"/>
+      </visual>
+
+      <!-- rearward arm: pivot → rear wheel (backward and downward) -->
+      <visual>
+        <origin xyz="${-rear_arm_x_reach/2} 0 ${-rear_arm_z_drop/2}"
+                rpy="0 ${pi - rear_arm_pitch} 0"/>
+        <geometry><box size="${rear_arm_length} ${arm_w} ${arm_h}"/></geometry>
+        <material name="rover_suspension"/>
+      </visual>
+
+      <collision>
+        <origin xyz="0 0 ${-rear_arm_z_drop/2}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${2*rear_arm_x_reach} ${arm_w} ${rear_arm_z_drop}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="${rear_rocker_mass}"/>
+        <inertia
+          ixx="${rear_rocker_mass*(arm_w**2            + rear_arm_z_drop**2)/12}"
+          ixy="0" ixz="0"
+          iyy="${rear_rocker_mass*((2*rear_arm_x_reach)**2 + rear_arm_z_drop**2)/12}"
+          iyz="0"
+          izz="${rear_rocker_mass*((2*rear_arm_x_reach)**2 + arm_w**2)/12}"/>
+      </inertial>
+    </link>
+
+    <!-- Pivot anchored to chassis side, revolute Y (pitch) -->
+    <joint name="${side}_rear_rocker_joint" type="revolute">
+      <parent link="base_link"/>
+      <child  link="${side}_rear_rocker_link"/>
+      <origin xyz="${rear_pivot_x} ${y_offset} ${-rear_pivot_drop}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-0.35" upper="0.35" effort="30" velocity="2"/>
+      <dynamics damping="30.0" friction="2.0"/>
+    </joint>
+
+    <!-- Spring return to level -->
+    <gazebo reference="${side}_rear_rocker_joint">
+      <axis>
+        <dynamics>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>300</spring_stiffness>
+          <damping>30.0</damping>
+          <friction>2.0</friction>
+        </dynamics>
+      </axis>
+    </gazebo>
+
+    <!-- Gazebo colour: cobalt blue -->
+    <gazebo reference="${side}_rear_rocker_link">
+      <visual>
+        <material>
+          <ambient>0.12 0.35 0.82 1</ambient>
+          <diffuse>0.12 0.35 0.82 1</diffuse>
+          <specular>0.2 0.2 0.2 1</specular>
+        </material>
+      </visual>
+      <!-- Rocker arms can drag on terrain: low friction, stiff contact -->
+      <mu1>0.3</mu1>
+      <mu2>0.3</mu2>
+      <kp>500000.0</kp>
+      <kd>50.0</kd>
+    </gazebo>
+
+    <!-- Mid wheel at forward arm end -->
+    <xacro:wheel prefix="${side}_mid"
+                 parent="${side}_rear_rocker_link"
+                 x="${rear_arm_x_reach}" y="0" z="${-rear_arm_z_drop}"
+                 flip="${flip}"/>
+
+    <!-- Rear wheel at rearward arm end -->
+    <xacro:wheel prefix="${side}_rear"
+                 parent="${side}_rear_rocker_link"
+                 x="${-rear_arm_x_reach}" y="0" z="${-rear_arm_z_drop}"
+                 flip="${flip}"/>
+
+  </xacro:macro>
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       FRONT ROCKER  (single, centred on chassis front)
+       Holds left_front and right_front wheels.
+       Pivot revolute X (roll) so left/right wheels rock independently.
+       Arms are V-shaped when viewed from the front: pivot at apex,
+       left arm angles outward-left-and-down, right arm mirrors it.
+  ═══════════════════════════════════════════════════════════════════ -->
+  <link name="front_rocker_link">
+    <!-- pivot hub: cylinder aligned with X axis (joint axis) -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 ${pi/2} 0"/>
+      <geometry><cylinder radius="${hub_r}" length="${hub_len}"/></geometry>
+      <material name="rover_suspension"/>
+    </visual>
+
+    <!-- left arm: pivot → left_front wheel (leftward and downward)
+         rpy = (0, front_arm_pitch, π/2) orients box along (0,+1,-slope) -->
+    <visual>
+      <origin xyz="0 ${front_arm_y_reach/2} ${-front_arm_z_drop/2}"
+              rpy="0 ${front_arm_pitch} ${pi/2}"/>
+      <geometry><box size="${front_arm_length} ${arm_w} ${arm_h}"/></geometry>
+      <material name="rover_suspension"/>
+    </visual>
+
+    <!-- right arm: pivot → right_front wheel (rightward and downward) -->
+    <visual>
+      <origin xyz="0 ${-front_arm_y_reach/2} ${-front_arm_z_drop/2}"
+              rpy="0 ${front_arm_pitch} ${-pi/2}"/>
+      <geometry><box size="${front_arm_length} ${arm_w} ${arm_h}"/></geometry>
+      <material name="rover_suspension"/>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 ${-front_arm_z_drop/2}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${arm_h} ${2*front_arm_y_reach} ${front_arm_z_drop}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="${front_rocker_mass}"/>
+      <inertia
+        ixx="${front_rocker_mass*((2*front_arm_y_reach)**2 + front_arm_z_drop**2)/12}"
+        ixy="0" ixz="0"
+        iyy="${front_rocker_mass*(arm_h**2                 + front_arm_z_drop**2)/12}"
+        iyz="0"
+        izz="${front_rocker_mass*((2*front_arm_y_reach)**2 + arm_h**2)/12}"/>
+    </inertial>
+  </link>
+
+  <!-- Pivot at chassis front centre, revolute X (roll) -->
+  <joint name="front_rocker_joint" type="revolute">
+    <parent link="base_link"/>
+    <child  link="front_rocker_link"/>
+    <origin xyz="${front_pivot_x} 0 ${-front_pivot_drop}" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.35" upper="0.35" effort="30" velocity="2"/>
+    <dynamics damping="20.0" friction="1.5"/>
+  </joint>
+
+  <!-- Spring return to level -->
+  <gazebo reference="front_rocker_joint">
+    <axis>
+      <dynamics>
+        <spring_reference>0</spring_reference>
+        <spring_stiffness>200</spring_stiffness>
+        <damping>20.0</damping>
+        <friction>1.5</friction>
+      </dynamics>
+    </axis>
+  </gazebo>
+
+  <!-- Gazebo colour: cobalt blue -->
+  <gazebo reference="front_rocker_link">
+    <visual>
+      <material>
+        <ambient>0.12 0.35 0.82 1</ambient>
+        <diffuse>0.12 0.35 0.82 1</diffuse>
+        <specular>0.2 0.2 0.2 1</specular>
+      </material>
+    </visual>
+    <mu1>0.3</mu1>
+    <mu2>0.3</mu2>
+    <kp>500000.0</kp>
+    <kd>50.0</kd>
+  </gazebo>
+
+  <!-- Left front wheel -->
+  <xacro:wheel prefix="left_front"
+               parent="front_rocker_link"
+               x="0" y="${front_arm_y_reach}" z="${-front_arm_z_drop}"
+               flip="1.0"/>
+
+  <!-- Right front wheel -->
+  <xacro:wheel prefix="right_front"
+               parent="front_rocker_link"
+               x="0" y="${-front_arm_y_reach}" z="${-front_arm_z_drop}"
+               flip="-1.0"/>
+
+</robot>

@@ -1,0 +1,41 @@
+# ArUco marker waypoints — 10 markers arranged around the map.
+# Approach positions are ~1.5 m in front of each marker (toward origin).
+# Marker image dictionary: DICT_4X4_50
+
+aruco_detector:
+  ros__parameters:
+    aruco_dictionary_id: 0       # DICT_4X4_50
+    marker_size: 0.20
+    image_topic: /camera/image
+    depth_topic: ""
+    camera_info_topic: /camera/camera_info
+    camera_frame: camera_optical_frame
+    max_detection_range: 8.0
+
+aruco_waypoint_bridge:
+  ros__parameters:
+    use_sim_time: true
+    goal_frame: map
+    nav2_approach_dist: 1.5
+    arrival_distance: 0.4
+    approach_speed: 0.1
+
+    # Ordered mission sequence (marker IDs to visit in order)
+    mission_sequence: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    # Nav2 approach waypoints (1.5 m in front of each marker facing it)
+    #   id: {x, y, yaw_deg, name}
+    #   Marker positions in world:
+    #     0:(5,0)  1:(5,5)  2:(0,8)  3:(-5,5)  4:(-5,-5)
+    #     5:(5,-5) 6:(0,-8) 7:(8,0)  8:(-8,0)  9:(3,3)
+    waypoints:
+      0:  {x:  3.5, y:  0.0, yaw_deg:   0.0, name: "Alpha"}
+      1:  {x:  4.0, y:  4.0, yaw_deg:  45.0, name: "Beta"}
+      2:  {x:  0.0, y:  6.5, yaw_deg:  90.0, name: "Gamma"}
+      3:  {x: -4.0, y:  4.0, yaw_deg: 135.0, name: "Delta"}
+      4:  {x: -4.0, y: -4.0, yaw_deg: 225.0, name: "Epsilon"}
+      5:  {x:  4.0, y: -4.0, yaw_deg: 315.0, name: "Zeta"}
+      6:  {x:  0.0, y: -6.5, yaw_deg: 270.0, name: "Eta"}
+      7:  {x:  6.5, y:  0.0, yaw_deg:   0.0, name: "Theta"}
+      8:  {x: -6.5, y:  0.0, yaw_deg: 180.0, name: "Iota"}
+      9:  {x:  2.0, y:  2.0, yaw_deg:  45.0, name: "Kappa"}
