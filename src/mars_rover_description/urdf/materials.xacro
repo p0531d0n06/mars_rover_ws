@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Rover body: bright white-cream for high contrast against Mars terrain -->
+  <material name="rover_chassis">
+    <color rgba="0.93 0.93 0.90 1.0"/>
+  </material>
+  <!-- Suspension arms: vivid cobalt blue — stands out against orange terrain -->
+  <material name="rover_suspension">
+    <color rgba="0.12 0.35 0.82 1.0"/>
+  </material>
+  <material name="dark_grey">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+  <material name="light_grey">
+    <color rgba="0.6 0.6 0.6 1.0"/>
+  </material>
+  <material name="black">
+    <color rgba="0.05 0.05 0.05 1.0"/>
+  </material>
+  <material name="blue">
+    <color rgba="0.1 0.4 0.9 1.0"/>
+  </material>
+  <material name="red">
+    <color rgba="0.9 0.1 0.1 1.0"/>
+  </material>
+  <!-- Keep mars_orange for any external references -->
+  <material name="mars_orange">
+    <color rgba="0.78 0.42 0.14 1.0"/>
+  </material>
+
+</robot>

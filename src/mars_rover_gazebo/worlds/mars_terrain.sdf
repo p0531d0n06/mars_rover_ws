@@ -1,0 +1,520 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="mars_terrain">
+
+    <!-- ── PHYSICS ─────────────────────────────────────────────────── -->
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+      <ode>
+        <solver>
+          <type>quick</type>
+          <iters>300</iters>  <!-- more iterations → better force resolution on steep slopes -->
+          <sor>1.4</sor>
+        </solver>
+        <constraints>
+          <cfm>0.0</cfm>         <!-- zero CFM = hard constraints, max force transfer -->
+          <erp>0.6</erp>         <!-- high ERP = physics engine pushes hard to meet velocity target -->
+          <contact_max_correcting_vel>200</contact_max_correcting_vel>
+          <contact_surface_layer>0.005</contact_surface_layer>  <!-- matches wheel minDepth -->
+        </constraints>
+      </ode>
+    </physics>
+
+    <!-- ── PLUGINS ─────────────────────────────────────────────────── -->
+    <plugin filename="libgz-sim-physics-system.so"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="libgz-sim-user-commands-system.so"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="libgz-sim-scene-broadcaster-system.so"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <!-- Sensors plugin: ogre2 + headless-rendering uses EGL off-screen
+         rendering on WSL2 (no /dev/dri needed). Camera and lidar both work. -->
+    <plugin filename="libgz-sim-sensors-system.so"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="libgz-sim-imu-system.so"
+            name="gz::sim::systems::Imu"/>
+    <plugin filename="libgz-sim-contact-system.so"
+            name="gz::sim::systems::Contact"/>
+
+    <!-- ── SCENE / LIGHTING ────────────────────────────────────────── -->
+    <scene>
+      <ambient>0.3 0.2 0.1 1</ambient>
+      <background>0.55 0.35 0.18 1</background>  <!-- Mars sky colour -->
+      <!-- Shadows disabled on WSL2: shadow-map shader permutations add ~30s to
+           OGRE2 render-thread init with Mesa llvmpipe, blocking lidar. -->
+      <shadows>false</shadows>
+    </scene>
+
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 500 0.1 0.1 0</pose>
+      <diffuse>0.9 0.75 0.55 1</diffuse>  <!-- warm Mars sunlight -->
+      <specular>0.3 0.3 0.3 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- ── MARS TERRAIN ──────────────────────────────────────────────────
+         Collision + visual: 32k-triangle mesh generated from 5-octave
+         fractal heightmap (129×129 grid, 40×40 m, 0–1.8 m height).
+         Spawn centre (±1.2 m) flattened to z=0. Large hills/valleys up to 1.8 m.
+         Note: gz-sim heightmap visual uses Ogre terrain shaders that are
+         incompatible with Mesa llvmpipe (WSL2 software rendering); plain
+         mesh visual works correctly.
+    ──────────────────────────────────────────────────────────────────── -->
+    <model name="mars_terrain">
+      <static>true</static>
+      <link name="link">
+        <collision name="terrain_collision">
+          <geometry>
+            <mesh>
+              <uri>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/rough_terrain/meshes/fractal_terrain.stl</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+          <surface>
+            <friction>
+              <ode><mu>3.0</mu><mu2>3.0</mu2></ode>
+            </friction>
+            <contact>
+              <ode><kp>2000000.0</kp><kd>200.0</kd></ode>
+            </contact>
+          </surface>
+        </collision>
+        <visual name="terrain_visual">
+          <geometry>
+            <mesh>
+              <uri>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/rough_terrain/meshes/fractal_terrain.stl</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.58 0.38 0.22 1</ambient>
+            <diffuse>0.62 0.42 0.24 1</diffuse>
+            <specular>0.05 0.04 0.03 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+<!-- ── BOUNDARY WALLS (10 m arena, 0.4 m thick, 1.5 m tall) ────────
+         Keeps the rover in bounds. Lidar will detect them so the Nav2
+         costmap marks them as obstacles automatically.
+         Arena: x ∈ [-20, 20], y ∈ [-20, 20]
+    ──────────────────────────────────────────────────────────────────── -->
+    <model name="wall_north">
+      <static>true</static><pose>0 20.2 1.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>40.8 0.4 3.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>40.8 0.4 3.5</size></box></geometry>
+          <material><ambient>0.55 0.38 0.25 1</ambient><diffuse>0.55 0.38 0.25 1</diffuse></material></visual>
+        <inertial><mass>500</mass><inertia><ixx>200</ixx><iyy>200</iyy><izz>200</izz></inertia></inertial>
+      </link>
+    </model>
+    <model name="wall_south">
+      <static>true</static><pose>0 -20.2 1.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>40.8 0.4 3.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>40.8 0.4 3.5</size></box></geometry>
+          <material><ambient>0.55 0.38 0.25 1</ambient><diffuse>0.55 0.38 0.25 1</diffuse></material></visual>
+        <inertial><mass>500</mass><inertia><ixx>200</ixx><iyy>200</iyy><izz>200</izz></inertia></inertial>
+      </link>
+    </model>
+    <model name="wall_east">
+      <static>true</static><pose>20.2 0 1.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.4 40.0 3.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.4 40.0 3.5</size></box></geometry>
+          <material><ambient>0.55 0.38 0.25 1</ambient><diffuse>0.55 0.38 0.25 1</diffuse></material></visual>
+        <inertial><mass>500</mass><inertia><ixx>200</ixx><iyy>200</iyy><izz>200</izz></inertia></inertial>
+      </link>
+    </model>
+    <model name="wall_west">
+      <static>true</static><pose>-20.2 0 1.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.4 40.0 3.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.4 40.0 3.5</size></box></geometry>
+          <material><ambient>0.55 0.38 0.25 1</ambient><diffuse>0.55 0.38 0.25 1</diffuse></material></visual>
+        <inertial><mass>500</mass><inertia><ixx>200</ixx><iyy>200</iyy><izz>200</izz></inertia></inertial>
+      </link>
+    </model>
+
+    <!-- ── ARUCO MARKER WAYPOINTS ────────────────────────────────────
+         Each marker is a flat board on a stake.
+         Marker IDs map to waypoints (configurable in aruco_waypoints.yaml).
+         Markers face the rover's expected approach direction.
+
+         Waypoint layout:
+           WP0 (ID=0) → (10,  0)   heading East
+           WP1 (ID=1) → (10, 10)   heading South-West
+           WP2 (ID=2) → ( 0, 16)   heading South
+           WP3 (ID=3) → (-10, 10)   heading East
+           WP4 (ID=4) → (-10,-10)   heading North-East
+    ──────────────────────────────────────────────────────────────── -->
+
+    <!-- ── ARUCO MARKER WAYPOINTS ────────────────────────────────────────
+         Board: 0.80×0.80 m (raised on 2.0 m stake, Z = terrain_height).
+         Stake bottom rests on terrain surface at each waypoint's sampled Z.
+         Board centre is at terrain_z + 2.40 m so visible from rovers below.
+    ─────────────────────────────────────────────────────────────────── -->
+
+    <model name="aruco_wp0">
+      <static>true</static>
+      <pose>10.0 0.0 1.024 0 0 3.14159</pose>  <!-- faces -X direction = rover approaching from origin -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_0.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp1">
+      <static>true</static>
+      <pose>10.0 10.0 0.995 0 0 2.356</pose>  <!-- faces SW -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_1.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp2">
+      <static>true</static>
+      <pose>0.0 16.0 0.069 0 0 4.71239</pose>  <!-- faces -Y = South -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_2.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp3">
+      <static>true</static>
+      <pose>-10.0 10.0 1.645 0 0 0.0</pose>  <!-- faces +X = East -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_3.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp4">
+      <static>true</static>
+      <pose>-10.0 -10.0 1.052 0 0 0.785</pose>  <!-- faces NE -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_4.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp5">
+      <static>true</static>
+      <pose>10.0 -10.0 1.482 0 0 2.356</pose>  <!-- faces NW (toward origin from SE) -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_5.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp6">
+      <static>true</static>
+      <pose>0.0 -16.0 0.733 0 0 1.5708</pose>  <!-- faces +Y (North, toward origin) -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_6.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp7">
+      <static>true</static>
+      <pose>16.0 0.0 0.407 0 0 3.14159</pose>  <!-- faces -X (West, toward origin) -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_7.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp8">
+      <static>true</static>
+      <pose>-16.0 0.0 0.400 0 0 0.0</pose>  <!-- faces +X (East, toward origin) -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_8.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+    <model name="aruco_wp9">
+      <static>true</static>
+      <pose>6.0 6.0 0.987 0 0 3.927</pose>  <!-- faces SW (toward origin) -->
+      <link name="stake">
+        <visual name="v"><geometry><box><size>0.08 0.08 0.8</size></box></geometry>
+          <material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.08 0.08 0.8</size></box></geometry></collision>
+        <pose>0 0 0.4 0 0 0</pose>
+        <inertial><mass>0.8</mass><inertia><ixx>0.05</ixx><iyy>0.05</iyy><izz>0.001</izz></inertia></inertial>
+      </link>
+      <link name="board">
+        <pose>0 0 0.80 0 0 0</pose>
+        <visual name="v">
+          <geometry><box><size>1.4 0.03 1.4</size></box></geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr><metal><albedo_map>file:///home/p0531d0n/mars_rover_ws/src/mars_rover_gazebo/models/aruco_marker/marker_9.png</albedo_map></metal></pbr>
+          </material>
+        </visual>
+        <inertial><mass>0.2</mass><inertia><ixx>0.01</ixx><iyy>0.01</iyy><izz>0.01</izz></inertia></inertial>
+      </link>
+      <joint name="stake_board" type="fixed"><parent>stake</parent><child>board</child></joint>
+    </model>
+
+
+    <!-- ── CUBOID OBSTACLES ──────────────────────────────────────────────
+         Elongated rock-like boxes (1.2×0.8×1.0 m) scattered around arena.
+         Model origin z = half-height (0.5) so base sits near z=0 plane.
+    ──────────────────────────────────────────────────────────────────── -->
+    <model name="cuboid_obs_1">
+      <static>true</static><pose>5.0 -4.0 0.5 0 0 0.4</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.2 0.8 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.2 0.8 1.0</size></box></geometry>
+          <material><ambient>0.50 0.32 0.18 1</ambient><diffuse>0.55 0.35 0.20 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cuboid_obs_2">
+      <static>true</static><pose>-4.0 5.0 0.5 0 0 1.1</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.2 0.8 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.2 0.8 1.0</size></box></geometry>
+          <material><ambient>0.50 0.32 0.18 1</ambient><diffuse>0.55 0.35 0.20 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cuboid_obs_3">
+      <static>true</static><pose>3.0 12.0 0.5 0 0 0.8</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.5 0.7 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.5 0.7 1.0</size></box></geometry>
+          <material><ambient>0.50 0.32 0.18 1</ambient><diffuse>0.55 0.35 0.20 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cuboid_obs_4">
+      <static>true</static><pose>-8.0 -5.0 0.5 0 0 0.3</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.2 0.8 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.2 0.8 1.0</size></box></geometry>
+          <material><ambient>0.50 0.32 0.18 1</ambient><diffuse>0.55 0.35 0.20 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cuboid_obs_5">
+      <static>true</static><pose>13.0 -6.0 0.5 0 0 1.3</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.8 0.6 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.8 0.6 1.0</size></box></geometry>
+          <material><ambient>0.50 0.32 0.18 1</ambient><diffuse>0.55 0.35 0.20 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cuboid_obs_6">
+      <static>true</static><pose>-12.0 4.0 0.5 0 0 0.6</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.2 0.8 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.2 0.8 1.0</size></box></geometry>
+          <material><ambient>0.50 0.32 0.18 1</ambient><diffuse>0.55 0.35 0.20 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- ── CUBE OBSTACLES ───────────────────────────────────────────────
+         Equal-sided cubes (0.8×0.8×0.8 m) scattered around arena.
+         Model origin z = half-height (0.4) so base sits near z=0 plane.
+    ──────────────────────────────────────────────────────────────────── -->
+    <model name="cube_obs_1">
+      <static>true</static><pose>6.0 -8.0 0.4 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.8 0.8 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.8 0.8 0.8</size></box></geometry>
+          <material><ambient>0.45 0.28 0.15 1</ambient><diffuse>0.50 0.32 0.18 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cube_obs_2">
+      <static>true</static><pose>-6.0 4.0 0.4 0 0 0.5</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.8 0.8 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.8 0.8 0.8</size></box></geometry>
+          <material><ambient>0.45 0.28 0.15 1</ambient><diffuse>0.50 0.32 0.18 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cube_obs_3">
+      <static>true</static><pose>8.0 5.0 0.4 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.8 0.8 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.8 0.8 0.8</size></box></geometry>
+          <material><ambient>0.45 0.28 0.15 1</ambient><diffuse>0.50 0.32 0.18 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cube_obs_4">
+      <static>true</static><pose>-3.0 -7.0 0.4 0 0 0.2</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.8 0.8 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.8 0.8 0.8</size></box></geometry>
+          <material><ambient>0.45 0.28 0.15 1</ambient><diffuse>0.50 0.32 0.18 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cube_obs_5">
+      <static>true</static><pose>5.0 15.0 0.4 0 0 0.7</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.8 0.8 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.8 0.8 0.8</size></box></geometry>
+          <material><ambient>0.45 0.28 0.15 1</ambient><diffuse>0.50 0.32 0.18 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="cube_obs_6">
+      <static>true</static><pose>-14.0 -8.0 0.4 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.8 0.8 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.8 0.8 0.8</size></box></geometry>
+          <material><ambient>0.45 0.28 0.15 1</ambient><diffuse>0.50 0.32 0.18 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    </world>
+</sdf>

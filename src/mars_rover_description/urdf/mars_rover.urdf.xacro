@@ -1,0 +1,164 @@
+<?xml version="1.0"?>
+<robot name="mars_rover" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+       MARS ROVER — 6-Wheel V-Rocker Drive
+       Layout (top-down view):
+
+           [LF]              [RF]
+              \              /
+               [FRONT PIVOT]        ← x=+0.32, y=0  revolute X
+
+           [LM]              [RM]
+             |                |
+          [L PIVOT]        [R PIVOT] ← x=-0.22, y=±0.30  revolute Y
+             |                |
+           [LR]              [RR]
+
+       Wheel X: front=+0.32  mid=0.00  rear=−0.44  (mid at chassis centre)
+       Wheel Y: ±0.30 (10 cm clear of chassis side ±0.16)
+       Front rocker : 1 pivot, 2 front wheels (left & right)
+       Rear rockers : 2 pivots (one per side), 4 wheels (mid + rear each side)
+  -->
+
+  <xacro:include filename="$(find mars_rover_description)/urdf/materials.xacro"/>
+  <xacro:include filename="$(find mars_rover_description)/urdf/triple_rocker.xacro"/>
+  <xacro:include filename="$(find mars_rover_description)/urdf/sensors.xacro"/>
+
+  <!-- Chassis geometry -->
+  <xacro:property name="chassis_length" value="0.56"/>
+  <xacro:property name="chassis_width"  value="0.32"/>
+  <xacro:property name="chassis_height" value="0.14"/>
+  <xacro:property name="chassis_mass"   value="10.0"/>
+
+  <!-- Suspension Y offsets from centreline -->
+  <xacro:property name="suspension_y"   value="0.30"/>
+
+  <!-- ── BASE FOOTPRINT ──────────────────────────────────────────── -->
+  <!-- Tiny inertia required: gz-sim treats zero-mass canonical links as
+       static/weightless, which disables gravity for the entire model. -->
+  <link name="base_footprint">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.000001" ixy="0" ixz="0"
+               iyy="0.000001" iyz="0"
+               izz="0.000001"/>
+    </inertial>
+  </link>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <!-- z = wheel_radius(0.10) + rear_pivot_drop(0.12) + rear_arm_z_drop(0.10) = 0.32 m
+         ensures wheel centres sit at exactly wheel_radius above footprint -->
+    <origin xyz="0 0 0.32" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ── CHASSIS / BASE_LINK ─────────────────────────────────────── -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+      <material name="rover_chassis"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <!-- CoM offset: forward sensors (lidar 0.2kg×0.05m + camera 0.1kg×0.30m) = +0.056 kg·m
+           offset = -0.056 / 10.0 ≈ -0.006 m rearward -->
+      <origin xyz="-0.006 0 0" rpy="0 0 0"/>
+      <mass value="${chassis_mass}"/>
+      <inertia
+        ixx="${chassis_mass*(chassis_width*chassis_width + chassis_height*chassis_height)/12}"
+        ixy="0" ixz="0"
+        iyy="${chassis_mass*(chassis_length*chassis_length + chassis_height*chassis_height)/12}"
+        iyz="0"
+        izz="${chassis_mass*(chassis_length*chassis_length + chassis_width*chassis_width)/12}"/>
+    </inertial>
+  </link>
+
+  <!-- ── LEFT REAR ROCKER ──────────────────────────────────────────── -->
+  <xacro:rear_rocker_side
+    side="left"
+    y_offset="${suspension_y}"
+    flip="1.0"/>
+
+  <!-- ── RIGHT REAR ROCKER ─────────────────────────────────────────── -->
+  <xacro:rear_rocker_side
+    side="right"
+    y_offset="${-suspension_y}"
+    flip="-1.0"/>
+  <!-- Note: front_rocker_link + left_front/right_front wheels are
+       instantiated automatically by the triple_rocker.xacro include. -->
+
+  <!-- ── GAZEBO PLUGINS ─────────────────────────────────────────── -->
+
+  <!-- Chassis colour override for Gazebo (white-cream, high contrast) -->
+  <gazebo reference="base_link">
+    <visual>
+      <material>
+        <ambient>0.93 0.93 0.90 1</ambient>
+        <diffuse>0.93 0.93 0.90 1</diffuse>
+        <specular>0.4 0.4 0.4 1</specular>
+      </material>
+    </visual>
+    <!-- Contact: low friction so the chassis can slide over terrain if it bottoms out -->
+    <mu1>0.3</mu1>
+    <mu2>0.3</mu2>
+    <kp>500000.0</kp>
+    <kd>50.0</kd>
+  </gazebo>
+
+  <!-- Self-collision: non-adjacent links (e.g. chassis underside vs terrain,
+       suspension arm vs body at joint limits) are resolved by the physics engine.
+       Adjacent joint pairs are automatically excluded by DART. -->
+  <gazebo>
+    <self_collide>true</self_collide>
+  </gazebo>
+
+  <!-- Skid-steer drive (6 wheels: front + mid + rear per side) -->
+  <gazebo>
+    <plugin filename="libgz-sim-diff-drive-system.so"
+            name="gz::sim::systems::DiffDrive">
+      <!-- Left wheels -->
+      <left_joint>left_front_wheel_joint</left_joint>
+      <left_joint>left_mid_wheel_joint</left_joint>
+      <left_joint>left_rear_wheel_joint</left_joint>
+      <!-- Right wheels -->
+      <right_joint>right_front_wheel_joint</right_joint>
+      <right_joint>right_mid_wheel_joint</right_joint>
+      <right_joint>right_rear_wheel_joint</right_joint>
+      <!-- Kinematics -->
+      <wheel_separation>0.60</wheel_separation>
+      <wheel_radius>0.10</wheel_radius>
+      <!-- Allow aggressive acceleration to power up steep hills -->
+      <max_linear_acceleration>8.0</max_linear_acceleration>
+      <max_angular_acceleration>4.0</max_angular_acceleration>
+      <!-- ROS topics -->
+      <topic>cmd_vel</topic>
+      <odom_topic>odom</odom_topic>
+      <!-- tf_topic set to unused name — EKF (robot_localization) is the sole
+           publisher of odom→base_footprint TF. Bridging Gazebo tf here would
+           cause duplicate/conflicting transforms that break slam_toolbox. -->
+      <tf_topic>gz_odom_tf_unused</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_footprint</child_frame_id>
+      <odom_publish_frequency>50</odom_publish_frequency>
+    </plugin>
+  </gazebo>
+
+  <!-- Joint state publisher (publishes all rocker/wheel joint states) -->
+  <gazebo>
+    <plugin filename="libgz-sim-joint-state-publisher-system.so"
+            name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+    </plugin>
+  </gazebo>
+
+</robot>
